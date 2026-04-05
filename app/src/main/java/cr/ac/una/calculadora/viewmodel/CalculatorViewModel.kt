@@ -4,6 +4,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import cr.ac.una.calculadora.model.CalculatorState
 import net.objecthunter.exp4j.ExpressionBuilder
+import java.util.Locale
 
 class CalculatorViewModel : ViewModel() {
 
@@ -11,6 +12,8 @@ class CalculatorViewModel : ViewModel() {
     var showDigitLimitNotice = mutableStateOf(false)
     private var justCalculated = false
     private val maxDigitsPerOperand = 15
+    private val operators = setOf("+", "-", "×", "÷", "^")
+    private val operatorChars = setOf('+', '-', '×', '÷', '^')
 
     fun onButtonClick(label: String) {
         when (label) {
@@ -18,6 +21,15 @@ class CalculatorViewModel : ViewModel() {
             "=" -> calculate()
             "⌫" -> deleteLast()
             "+/-" -> toggleSign()
+            "%" -> applyPercentToCurrentOperand()
+            "√" -> enterFunction("sqrt(")
+            "sin" -> enterFunction("sin(")
+            "cos" -> enterFunction("cos(")
+            "tan" -> enterFunction("tan(")
+            "(" -> enterOpenParenthesis()
+            ")" -> enterCloseParenthesis()
+            "x²" -> enterPowerShortcut(2)
+            "x³" -> enterPowerShortcut(3)
             else -> enterCharacter(label)
         }
     }
@@ -39,7 +51,6 @@ class CalculatorViewModel : ViewModel() {
 
     private fun enterCharacter(char: String) {
         val current = state.value.operation
-        val operators = setOf("+", "-", "×", "÷", "%")
         val isDigit = char.all { it.isDigit() }
         val isOperator = char in operators
 
@@ -69,6 +80,23 @@ class CalculatorViewModel : ViewModel() {
             return
         }
 
+        if (isOperator) {
+            val last = current.lastOrNull()
+            if (last != null && last.toString() in operators) {
+                if (char == "-" && last != '-') {
+                    state.value = state.value.copy(operation = current + char)
+                } else {
+                    state.value = state.value.copy(operation = current.dropLast(1) + char)
+                }
+                justCalculated = false
+                return
+            }
+
+            if (last == '(' && char != "-") {
+                return
+            }
+        }
+
         if (isDigit && shouldBlockDigitInput(current)) {
             showDigitLimitNotice.value = true
             return
@@ -94,6 +122,154 @@ class CalculatorViewModel : ViewModel() {
         justCalculated = false
     }
 
+    private fun enterFunction(functionToken: String) {
+        val current = state.value.operation
+
+        if (justCalculated || current == "0" || current == "-0" || current == "Error") {
+            state.value = CalculatorState(functionToken)
+            justCalculated = false
+            return
+        }
+
+        val last = current.lastOrNull()
+        val needsMultiplication = last?.isDigit() == true || last == ')'
+        val updated = if (needsMultiplication) "$current×$functionToken" else "$current$functionToken"
+        state.value = state.value.copy(operation = updated)
+        justCalculated = false
+    }
+
+    private fun enterOpenParenthesis() {
+        val current = state.value.operation
+
+        if (justCalculated || current == "Error") {
+            state.value = CalculatorState("(")
+            justCalculated = false
+            return
+        }
+
+        val updated = when {
+            current == "0" || current == "-0" -> "("
+            current.lastOrNull()?.isDigit() == true || current.lastOrNull() == ')' -> "$current×("
+            else -> "$current("
+        }
+
+        state.value = state.value.copy(operation = updated)
+        justCalculated = false
+    }
+
+    private fun enterCloseParenthesis() {
+        val current = state.value.operation
+        if (current == "Error") return
+        if (openParenthesisCount(current) <= 0) return
+
+        val last = current.lastOrNull() ?: return
+        if (last.toString() in operators || last == '(') return
+
+        state.value = state.value.copy(operation = "$current)")
+        justCalculated = false
+    }
+
+    private fun enterPowerShortcut(exponent: Int) {
+        val current = state.value.operation
+        if (current == "Error") return
+
+        val base = if (justCalculated) {
+            justCalculated = false
+            current
+        } else {
+            current
+        }
+
+        val last = base.lastOrNull() ?: return
+        if (last.isDigit() || last == ')') {
+            state.value = state.value.copy(operation = "$base^$exponent")
+        }
+    }
+
+    private fun applyPercentToCurrentOperand() {
+        val current = state.value.operation
+        if (current == "Error") return
+
+        val end = current.length
+        if (end == 0) return
+
+        var i = end - 1
+        while (i >= 0 && (current[i].isDigit() || current[i] == ',')) {
+            i--
+        }
+
+        val numberStart = i + 1
+        if (numberStart >= end) return
+
+        val signIndex = numberStart - 1
+        val hasUnaryMinus = signIndex >= 0 &&
+            current[signIndex] == '-' &&
+            (signIndex == 0 || current[signIndex - 1] in operatorChars || current[signIndex - 1] == '(')
+
+        val tokenStart = if (hasUnaryMinus) signIndex else numberStart
+        val token = current.substring(tokenStart, end).replace(',', '.')
+        val rightValue = token.toDoubleOrNull() ?: return
+
+        val binaryOperatorIndex = findLastBinaryOperatorBefore(current, tokenStart)
+        val replacementValue = if (binaryOperatorIndex == -1) {
+            rightValue / 100.0
+        } else {
+            val operator = current[binaryOperatorIndex]
+            val leftExpression = current.substring(0, binaryOperatorIndex)
+            val leftValue = evaluateExpression(leftExpression) ?: return
+
+            when (operator) {
+                '+', '-' -> leftValue * rightValue / 100.0
+                '×', '÷' -> rightValue / 100.0
+                else -> rightValue / 100.0
+            }
+        }
+
+        val replacement = formatResult(replacementValue)
+        val updated = current.substring(0, tokenStart) + replacement
+
+        state.value = state.value.copy(operation = updated)
+        justCalculated = false
+    }
+
+    private fun findLastBinaryOperatorBefore(expression: String, endExclusive: Int): Int {
+        var depth = 0
+
+        for (i in endExclusive - 1 downTo 0) {
+            when (val c = expression[i]) {
+                ')' -> depth++
+                '(' -> if (depth > 0) depth--
+                '+', '-', '×', '÷', '^' -> {
+                    if (depth != 0) continue
+
+                    val isUnaryMinus = c == '-' &&
+                        (i == 0 || expression[i - 1] in operatorChars || expression[i - 1] == '(')
+
+                    if (!isUnaryMinus) return i
+                }
+            }
+        }
+
+        return -1
+    }
+
+    private fun evaluateExpression(expression: String): Double? {
+        if (expression.isBlank()) return null
+
+        return try {
+            val normalized = expression
+                .replace("×", "*")
+                .replace("÷", "/")
+                .replace(",", ".")
+
+            ExpressionBuilder(normalized)
+                .build()
+                .evaluate()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun toggleSign() {
         justCalculated = false
         val current = state.value.operation
@@ -108,14 +284,13 @@ class CalculatorViewModel : ViewModel() {
             return
         }
 
-        val operators = setOf('+', '-', '×', '÷', '%')
         val lastChar = current.lastOrNull() ?: return
 
-        if (lastChar in operators) {
+        if (lastChar in operatorChars) {
             val hasPendingUnaryMinus =
                 lastChar == '-' &&
                     current.length >= 2 &&
-                    current[current.length - 2] in operators
+                    current[current.length - 2] in operatorChars
 
             state.value = if (hasPendingUnaryMinus) {
                 state.value.copy(operation = current.dropLast(1))
@@ -138,7 +313,7 @@ class CalculatorViewModel : ViewModel() {
         val signIndex = numberStart - 1
         val hasUnaryMinus = signIndex >= 0 &&
             current[signIndex] == '-' &&
-            (signIndex == 0 || current[signIndex - 1] in operators)
+            (signIndex == 0 || current[signIndex - 1] in operatorChars)
 
         val updated = if (hasUnaryMinus) {
             current.removeRange(signIndex, signIndex + 1)
@@ -151,6 +326,13 @@ class CalculatorViewModel : ViewModel() {
 
     fun calculate() {
         try {
+            val rawExpression = state.value.operation
+            if (openParenthesisCount(rawExpression) != 0) {
+                state.value = CalculatorState("Error")
+                justCalculated = false
+                return
+            }
+
             val expression = state.value.operation
                 .replace("×", "*")
                 .replace("÷", "/")
@@ -160,13 +342,13 @@ class CalculatorViewModel : ViewModel() {
                 .build()
                 .evaluate()
 
-            // Formatear el resultado
-            val formattedResult = if (result % 1 == 0.0) {
-                result.toLong().toString()
-            } else {
-                // Limitar a pocos decimales para que no se salga de la pantalla
-                "%.4f".format(result).replace(".", ",").trimEnd('0').trimEnd(',')
+            if (result.isNaN() || result.isInfinite()) {
+                state.value = CalculatorState("Error")
+                justCalculated = false
+                return
             }
+
+            val formattedResult = formatResult(result)
 
             state.value = CalculatorState(formattedResult)
             justCalculated = true
@@ -179,16 +361,15 @@ class CalculatorViewModel : ViewModel() {
 
     private fun hasDecimalInCurrentOperand(expression: String): Boolean {
         if (expression == "Error") return false
-
-        val operators = setOf('+', '-', '×', '÷', '%')
         var i = expression.length - 1
 
         while (i >= 0) {
             val c = expression[i]
             when {
                 c == ',' -> return true
-                c in operators -> {
-                    val isUnaryMinus = c == '-' && (i == 0 || expression[i - 1] in operators)
+                c == '(' || c == ')' -> return false
+                c in operatorChars -> {
+                    val isUnaryMinus = c == '-' && (i == 0 || expression[i - 1] in operatorChars)
                     if (!isUnaryMinus) return false
                 }
             }
@@ -206,7 +387,6 @@ class CalculatorViewModel : ViewModel() {
     }
 
     private fun currentOperandDigitCount(expression: String): Int {
-        val operators = setOf('+', '-', '×', '÷', '%')
         var i = expression.length - 1
         var digits = 0
 
@@ -215,8 +395,9 @@ class CalculatorViewModel : ViewModel() {
             when {
                 c.isDigit() -> digits++
                 c == ',' -> Unit
-                c in operators -> {
-                    val isUnaryMinus = c == '-' && (i == 0 || expression[i - 1] in operators)
+                c == '(' || c == ')' -> break
+                c in operatorChars -> {
+                    val isUnaryMinus = c == '-' && (i == 0 || expression[i - 1] in operatorChars)
                     if (!isUnaryMinus) break
                 }
             }
@@ -228,5 +409,20 @@ class CalculatorViewModel : ViewModel() {
 
     fun consumeDigitLimitNotice() {
         showDigitLimitNotice.value = false
+    }
+
+    private fun openParenthesisCount(expression: String): Int {
+        val opens = expression.count { it == '(' }
+        val closes = expression.count { it == ')' }
+        return opens - closes
+    }
+
+    private fun formatResult(value: Double): String {
+        if (value % 1 == 0.0) return value.toLong().toString()
+
+        return String.format(Locale.US, "%.8f", value)
+            .trimEnd('0')
+            .trimEnd('.')
+            .replace('.', ',')
     }
 }

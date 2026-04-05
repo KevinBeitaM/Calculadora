@@ -8,8 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
+import cr.ac.una.calculadora.navigation.AppNavGraph
 import cr.ac.una.calculadora.ui.theme.CalculadoraTheme
-import cr.ac.una.calculadora.view.CalculatorScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -18,7 +18,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             CalculadoraTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    CalculatorScreen(
+                    AppNavGraph(
                         modifier = Modifier.padding(innerPadding)
                     )
                 }

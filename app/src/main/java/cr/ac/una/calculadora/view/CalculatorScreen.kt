@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,16 +33,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import cr.ac.una.calculadora.viewmodel.CalculatorViewModel
 import kotlinx.coroutines.delay
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.rememberTextMeasurer
 
 @Composable
-fun CalculatorScreen(modifier: Modifier = Modifier) {
-
-    val viewModel: CalculatorViewModel = viewModel()
+fun CalculatorScreen(
+    modifier: Modifier = Modifier,
+    viewModel: CalculatorViewModel,
+    onOpenAdvanced: () -> Unit = {}
+) {
     val state by viewModel.state
     val showDigitLimitNotice by viewModel.showDigitLimitNotice
 
@@ -67,6 +69,14 @@ fun CalculatorScreen(modifier: Modifier = Modifier) {
             .padding(8.dp),
         verticalArrangement = Arrangement.SpaceBetween
     ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(onClick = onOpenAdvanced) {
+                Text(text = "Avanzada")
+            }
+        }
 
 
         val displayText = state.display()
