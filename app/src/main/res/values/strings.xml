@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">calculadora</string>
+    <string name="max_digits_reached">No se pueden ingresar mas de 15 digitos</string>
 </resources>
